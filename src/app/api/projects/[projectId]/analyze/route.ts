@@ -3,7 +3,7 @@
 // يستدعي المزود خلف الخادم لتحليل الفكرة واقتراح المسار والأسئلة الناقصة.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, syncStateAfterWrite, refreshStateFromBlob } from '@/lib/db'
 import { apiError, makeRequestId, toProjectDetail } from '@/lib/api/respond'
 import { rateLimit } from '@/lib/security/rate-limit'
 import { buildAnalysisPrompt, heuristicRoute, interpretAnalysis } from '@/lib/routing/intent-router'
@@ -20,6 +20,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   const requestId = makeRequestId()
   try {
     const { projectId } = await ctx.params
+    await refreshStateFromBlob()
     const project = await db.project.findUnique({
       where: { id: projectId },
       include: { stages: true },
@@ -96,6 +97,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         },
         include: { stages: true },
       })
+      await syncStateAfterWrite()
 
       return NextResponse.json({
         project: toProjectDetail(updated, updated.stages),
@@ -125,6 +127,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         },
         include: { stages: true },
       })
+      await syncStateAfterWrite()
       return NextResponse.json({
         project: toProjectDetail(updated, updated.stages),
         analysis,

@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client'
-import { blobSyncEnabled, restoreSyncState, scheduleSync } from './db-sync'
+import { blobSyncEnabled, restoreSyncState, syncStateNow, refreshFromBlob } from './db-sync'
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: ReturnType<typeof createExtendedClient>
@@ -93,17 +93,12 @@ async function ensureSchemaOnce(): Promise<void> {
 }
 
 function createExtendedClient() {
-  // كل استعلام يضمن الجداول والاستعادة مرة واحدة لكل نسخة،
-  // وكل كتابة تجدول مزامنة الحالة إلى Blob (fire-and-forget)
+  // كل استعلام يضمن الجداول والاستعادة مرة واحدة لكل نسخة
   return rawClient.$extends({
     query: {
       $allOperations: async ({ operation, query, args }) => {
         await ensureSchemaOnce()
-        const result = await query(args)
-        if (WRITE_OPS.has(operation) && blobSyncEnabled()) {
-          scheduleSync(rawClient as never)
-        }
-        return result
+        return query(args)
       },
     },
   })
@@ -112,3 +107,18 @@ function createExtendedClient() {
 export const db = globalForPrisma.prisma ?? createExtendedClient()
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+
+// ---- أدوات المزامنة العامة (تُستدعى صراحة من مسارات API) ----
+
+// تحديث الحالة المحلية من أحدث نسخة في Blob — قبل القراءات المهمة والتوليد
+export async function refreshStateFromBlob(): Promise<void> {
+  if (!blobSyncEnabled()) return
+  await ensureSchemaOnce()
+  await refreshFromBlob(rawClient as never)
+}
+
+// مزامنة فورية متزامنة — بعد كل عملية كتابة جوهرية قبل إرسال الاستجابة
+export async function syncStateAfterWrite(): Promise<void> {
+  if (!blobSyncEnabled()) return
+  await syncStateNow(rawClient as never)
+}

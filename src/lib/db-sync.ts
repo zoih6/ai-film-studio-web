@@ -1,6 +1,6 @@
 // مزامنة حالة SQLite عبر Vercel Blob — تجاوز طبيعة /tmp المؤقتة في serverless.
-// المبدأ: كل نسخة lambda تستعيد الحالة عند البداية الباردة، وتزامنها بعد كل تعديل.
-// ملاحظة معمارية: هذا حل MVP أحادي المستخدم؛ للإنتاج متعدد المستخدمين اربط Postgres.
+// المبدأ: كتابة كل عملية → مزامنة متزامنة (awaited)؛ قراءة/توليد → تحديث من أحدث حالة.
+// ملاحظة معمارية: هذا حل MVP يعمل بدقة لتدففق العمل التسلسلي؛ للإنتاج متعدد المستخدمين المتزامنين اربط Postgres.
 
 import { put, get } from '@vercel/blob'
 
@@ -60,9 +60,25 @@ export interface SyncState {
 }
 
 type RawClient = {
-  project: { findMany(): Promise<SyncableProject[]>; count(): Promise<number>; createMany(args: { data: unknown[] }): Promise<{ count: number }> }
-  projectStage: { findMany(): Promise<SyncableStage[]>; createMany(args: { data: unknown[] }): Promise<{ count: number }> }
-  stageVersion: { findMany(): Promise<SyncableVersion[]>; createMany(args: { data: unknown[] }): Promise<{ count: number }> }
+  project: {
+    findMany(): Promise<SyncableProject[]>
+    count(): Promise<number>
+    createMany(args: { data: unknown[] }): Promise<{ count: number }>
+    findUnique(args: { where: { id: string } }): Promise<SyncableProject | null>
+    upsert(args: { where: { id: string }; create: unknown; update: unknown }): Promise<unknown>
+  }
+  projectStage: {
+    findMany(): Promise<SyncableStage[]>
+    createMany(args: { data: unknown[] }): Promise<{ count: number }>
+    findUnique(args: { where: { projectId_stageId: { projectId: string; stageId: string } } }): Promise<SyncableStage | null>
+    upsert(args: { where: { id: string }; create: unknown; update: unknown }): Promise<unknown>
+  }
+  stageVersion: {
+    findMany(): Promise<SyncableVersion[]>
+    createMany(args: { data: unknown[] }): Promise<{ count: number }>
+    findUnique(args: { where: { id: string } }): Promise<SyncableVersion | null>
+    create(args: { data: unknown }): Promise<unknown>
+  }
 }
 
 export function blobSyncEnabled(): boolean {
@@ -91,7 +107,7 @@ export async function fetchSyncState(): Promise<SyncState | null> {
   }
 }
 
-export async function pushSyncState(raw: RawClient): Promise<void> {
+async function pushSyncState(raw: RawClient): Promise<void> {
   const [projects, stages, versions] = await Promise.all([
     raw.project.findMany(),
     raw.projectStage.findMany(),
@@ -112,11 +128,23 @@ export async function pushSyncState(raw: RawClient): Promise<void> {
   })
 }
 
+// مزامنة فورية — تُنتظر قبل إرسال الاستجابة حتى يجد الطلب التالي أحدث حالة
+let syncChain: Promise<void> = Promise.resolve()
+
+export function syncStateNow(raw: RawClient): Promise<void> {
+  const run = syncChain.then(() => pushSyncState(raw)).catch((err) => {
+    console.error('[blob-sync] push failed:', err instanceof Error ? err.message : err)
+  })
+  syncChain = run
+  return run
+}
+
+// استعادة كاملة عند البداية الباردة (القاعدة المحلية فارغة)
 export async function restoreSyncState(raw: RawClient): Promise<boolean> {
   const state = await fetchSyncState()
   if (!state || state.projects.length === 0) return false
   const existing = await raw.project.count()
-  if (existing > 0) return false // القاعدة المحلية ليست فارغة — لا استعادة
+  if (existing > 0) return false
 
   if (state.projects.length) {
     await raw.project.createMany({ data: state.projects as unknown[] })
@@ -131,36 +159,45 @@ export async function restoreSyncState(raw: RawClient): Promise<boolean> {
   return true
 }
 
-// مجدول مزامنة بعد الكتابات — fire-and-forget مع دمج الطلبات المتزامنة
-let syncing = false
-let pending = false
-let lastSyncAt = 0
-const MIN_SYNC_INTERVAL_MS = 800
+const toMs = (d: Date | string) => new Date(d).getTime()
 
-export function scheduleSync(raw: RawClient): void {
-  const now = Date.now()
-  if (now - lastSyncAt < MIN_SYNC_INTERVAL_MS) {
-    // قريبة من المزامنة السابقة — أجّلها قليلًا
-    setTimeout(() => scheduleSync(raw), MIN_SYNC_INTERVAL_MS)
-    return
+// تحديث تدريجي: دمج السجلات الأحدث من Blob إلى القاعدة المحلية
+// يُستدعى قبل عمليات القراءة/التوليد حتى تعمل كل نسخة على أحدث حالة
+export async function refreshFromBlob(raw: RawClient): Promise<void> {
+  const state = await fetchSyncState()
+  if (!state) return
+
+  // المشاريع: upsert لكل سجل أحدث من المحلي
+  for (const p of state.projects) {
+    const local = await raw.project.findUnique({ where: { id: p.id } })
+    if (!local || toMs(p.updatedAt) > toMs(local.updatedAt)) {
+      await raw.project.upsert({
+        where: { id: p.id },
+        create: p as unknown,
+        update: p as unknown,
+      })
+    }
   }
-  if (syncing) {
-    pending = true
-    return
+
+  // المراحل
+  for (const s of state.stages) {
+    const local = await raw.projectStage.findUnique({
+      where: { projectId_stageId: { projectId: s.projectId, stageId: s.stageId } },
+    })
+    if (!local || toMs(s.updatedAt) > toMs(local.updatedAt)) {
+      await raw.projectStage.upsert({
+        where: { id: s.id },
+        create: s as unknown,
+        update: s as unknown,
+      })
+    }
   }
-  syncing = true
-  pushSyncState(raw)
-    .then(() => {
-      lastSyncAt = Date.now()
-    })
-    .catch((err) => {
-      console.error('[blob-sync] push failed:', err instanceof Error ? err.message : err)
-    })
-    .finally(() => {
-      syncing = false
-      if (pending) {
-        pending = false
-        scheduleSync(raw)
-      }
-    })
+
+  // الإصدارات (سجلات تراكمية — الإضافة فقط عند الغياب)
+  for (const v of state.versions) {
+    const local = await raw.stageVersion.findUnique({ where: { id: v.id } })
+    if (!local) {
+      await raw.stageVersion.create({ data: v as unknown })
+    }
+  }
 }

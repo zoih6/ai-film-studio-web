@@ -2,7 +2,7 @@
 // PRD §8 (FR-07 التحرير والنسخ): إعادة التوليد تحتاج سببًا أو ملاحظة
 
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, syncStateAfterWrite, refreshStateFromBlob } from '@/lib/db'
 import { apiError, makeRequestId, toProjectDetail } from '@/lib/api/respond'
 import { rateLimit } from '@/lib/security/rate-limit'
 import { runStageForProject } from '@/lib/ai/pipeline'
@@ -17,6 +17,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   const requestId = makeRequestId()
   try {
     const { projectId, stageId } = await ctx.params
+    await refreshStateFromBlob()
     const project = await db.project.findUnique({
       where: { id: projectId },
       include: { stages: true },
@@ -55,6 +56,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     }
 
     const outcome = await runStageForProject(projectId, stageId, { regenerateNote: note })
+    await syncStateAfterWrite()
 
     const fresh = await db.project.findUnique({
       where: { id: projectId },

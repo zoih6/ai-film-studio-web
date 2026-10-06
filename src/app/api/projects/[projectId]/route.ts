@@ -2,7 +2,7 @@
 // PRD §12
 
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, syncStateAfterWrite, refreshStateFromBlob } from '@/lib/db'
 import { patchProjectSchema } from '@/lib/validation/schemas'
 import { apiError, makeRequestId, toProjectDetail } from '@/lib/api/respond'
 import { rateLimit } from '@/lib/security/rate-limit'
@@ -23,6 +23,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   const requestId = makeRequestId()
   try {
     const { projectId } = await ctx.params
+    await refreshStateFromBlob()
     const project = await loadProject(projectId)
     if (!project) {
       return apiError({ code: 'NOT_FOUND', message: 'المشروع غير موجود.' }, 404, requestId)
@@ -91,6 +92,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
       data,
       include: { stages: { orderBy: { updatedAt: 'asc' } } },
     })
+    await syncStateAfterWrite()
     return NextResponse.json(toProjectDetail(updated, updated.stages))
   } catch (err) {
     console.error('[PATCH /api/projects/:id]', err)

@@ -2,7 +2,7 @@
 // PRD §12: أحداث Progress، SSE أو polling مضبوط — نعتمد polling بسيط مستقر.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, refreshStateFromBlob } from '@/lib/db'
 import { apiError, makeRequestId, toStageResult } from '@/lib/api/respond'
 import { stagesForRoute } from '@/lib/domain/stages'
 
@@ -14,6 +14,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   const requestId = makeRequestId()
   try {
     const { projectId } = await ctx.params
+    await refreshStateFromBlob()
     const project = await db.project.findUnique({
       where: { id: projectId },
       include: { stages: true },

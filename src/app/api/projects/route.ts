@@ -2,7 +2,7 @@
 // PRD §12: API / Server Contracts
 
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, syncStateAfterWrite, refreshStateFromBlob } from '@/lib/db'
 import { createProjectSchema } from '@/lib/validation/schemas'
 import { apiError, makeRequestId, toProjectSummary } from '@/lib/api/respond'
 import { rateLimit } from '@/lib/security/rate-limit'
@@ -61,6 +61,8 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    await syncStateAfterWrite()
+
     return NextResponse.json(toProjectSummary(project), { status: 201 })
   } catch (err) {
     console.error('[POST /api/projects]', err)
@@ -75,6 +77,7 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   const requestId = makeRequestId()
   try {
+    await refreshStateFromBlob()
     const projects = await db.project.findMany({
       orderBy: { updatedAt: 'desc' },
       take: 50,

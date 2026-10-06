@@ -2,7 +2,7 @@
 // PRD §8 (FR-04): status لكل مرحلة: pending, running, completed, failed, approved
 
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, syncStateAfterWrite, refreshStateFromBlob } from '@/lib/db'
 import { apiError, makeRequestId, toProjectDetail } from '@/lib/api/respond'
 
 export const runtime = 'nodejs'
@@ -13,6 +13,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
   const requestId = makeRequestId()
   try {
     const { projectId, stageId } = await ctx.params
+    await refreshStateFromBlob()
     const stage = await db.projectStage.findUnique({
       where: { projectId_stageId: { projectId, stageId } },
     })
@@ -35,6 +36,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       where: { projectId_stageId: { projectId, stageId } },
       data: { status: 'approved', updatedAt: new Date() },
     })
+    await syncStateAfterWrite()
 
     const fresh = await db.project.findUnique({
       where: { id: projectId },

@@ -4,7 +4,7 @@
 // والعميل يحرّك تسلسل المراحل. لا مهام خلفية طويلة الأمد.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, syncStateAfterWrite, refreshStateFromBlob } from '@/lib/db'
 import { apiError, makeRequestId, toProjectDetail } from '@/lib/api/respond'
 import { rateLimit } from '@/lib/security/rate-limit'
 import { runStageForProject, nextPendingStage } from '@/lib/ai/pipeline'
@@ -19,6 +19,7 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   const requestId = makeRequestId()
   try {
     const { projectId } = await ctx.params
+    await refreshStateFromBlob()
     const project = await db.project.findUnique({
       where: { id: projectId },
       include: { stages: true },
@@ -77,6 +78,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const outcome = await runStageForProject(projectId, stageId, {
       regenerateNote: (body || {}).note as string | undefined,
     })
+
+    await syncStateAfterWrite()
 
     const fresh = await db.project.findUnique({
       where: { id: projectId },
