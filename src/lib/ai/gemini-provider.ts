@@ -14,8 +14,10 @@ const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta'
 const DEFAULT_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash'
 const REQUEST_TIMEOUT_MS = 55_000
 // إعادة محاولة أسّية للأخطاء العابرة (حمولة عالية 503/429، مهلة، شبكة)
-const TRANSIENT_RETRIES = 3
-const RETRY_BASE_DELAY_MS = 1_500
+const PER_MODEL_ATTEMPTS = 2
+const RETRY_BASE_DELAY_MS = 1_200
+// سلسلة بدائل عند الحمل المرتفع أو غياب نموذج — تُجرّب بالترتيب
+const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-flash-lite-latest']
 
 interface GeminiPart {
   text?: string
@@ -59,34 +61,50 @@ export class GeminiProvider implements AIProvider {
 
   async generate(input: GenerationRequest): Promise<GenerationResult> {
     const started = Date.now()
-    let lastError: AIProviderError | null = null
+    const models = [this.model, ...FALLBACK_MODELS.filter((m) => m !== this.model)]
+    let lastError: unknown = null
 
-    for (let attempt = 1; attempt <= TRANSIENT_RETRIES; attempt++) {
-      try {
-        return await this.generateOnce(input, started)
-      } catch (err) {
-        const providerErr =
-          err instanceof AIProviderError
-            ? err
-            : new AIProviderError('تعذر الاتصال بمزود الذكاء الاصطناعي الآن.', {
-                code: 'AI_NETWORK_ERROR',
-                retryable: true,
-                provider: this.name,
-              })
-        // إعادة المحاولة للأخطاء العابرة فقط (بلا أخطاء إعادة المحاولة للاعتمادات غير المتاحة)
-        const transient =
-          providerErr.code === 'AI_TIMEOUT' ||
-          providerErr.code === 'AI_NETWORK_ERROR' ||
-          (providerErr.code === 'AI_PROVIDER_ERROR' && /503|429|high demand|overloaded|rate|temporarily|UNAVAILABLE|RESOURCE_EXHAUSTED/i.test(providerErr.rawDetail || ''))
-        if (!transient || attempt === TRANSIENT_RETRIES) throw providerErr
-        lastError = providerErr
-        await new Promise((r) => setTimeout(r, RETRY_BASE_DELAY_MS * 2 ** (attempt - 1)))
+    for (const model of models) {
+      for (let attempt = 1; attempt <= PER_MODEL_ATTEMPTS; attempt++) {
+        try {
+          const result = await this.generateOnce(input, started, model)
+          if (model !== this.model) {
+            console.log(`[gemini] used fallback model: ${model}`)
+          }
+          return result
+        } catch (err) {
+          lastError = err
+          const providerErr =
+            err instanceof AIProviderError
+              ? err
+              : new AIProviderError('تعذر الاتصال بمزود الذكاء الاصطناعي الآن.', {
+                  code: 'AI_NETWORK_ERROR',
+                  retryable: true,
+                  provider: this.name,
+                })
+          const detail = providerErr.rawDetail || ''
+          const modelMissing = /404|not found|not supported|no longer available/i.test(detail)
+          const transient =
+            providerErr.code === 'AI_TIMEOUT' ||
+            providerErr.code === 'AI_NETWORK_ERROR' ||
+            /503|429|high demand|overloaded|temporarily|UNAVAILABLE|RESOURCE_EXHAUSTED/i.test(detail)
+          // خطأ غير عابر وغير مرتبط بالنموذج — لا فائدة من البدائل
+          if (!transient && !modelMissing) throw providerErr
+          // النموذج غير موجود → جرّب التالي فورًا
+          if (modelMissing) break
+          // خطأ عابر → محاولة أخرى على نفس النموذج ثم البديل
+          if (attempt < PER_MODEL_ATTEMPTS) {
+            await new Promise((r) => setTimeout(r, RETRY_BASE_DELAY_MS * 2 ** (attempt - 1)))
+          }
+        }
       }
     }
-    throw lastError || new AIProviderError('فشل غير متوقع في مزود Gemini.', { provider: this.name })
+    throw lastError instanceof Error
+      ? lastError
+      : new AIProviderError('فشل غير متوقع في مزود Gemini.', { provider: this.name })
   }
 
-  private async generateOnce(input: GenerationRequest, started: number): Promise<GenerationResult> {
+  private async generateOnce(input: GenerationRequest, started: number, model: string): Promise<GenerationResult> {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 
@@ -108,7 +126,7 @@ export class GeminiProvider implements AIProvider {
         },
       }
 
-      const res = await fetch(`${GEMINI_BASE}/models/${this.model}:generateContent`, {
+      const res = await fetch(`${GEMINI_BASE}/models/${model}:generateContent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -151,7 +169,7 @@ export class GeminiProvider implements AIProvider {
       return {
         text,
         provider: this.name,
-        model: this.model,
+        model,
         latencyMs: Date.now() - started,
       }
     } catch (err) {
