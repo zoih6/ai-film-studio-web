@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client'
+import { blobSyncEnabled, restoreSyncState, scheduleSync } from './db-sync'
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: ReturnType<typeof createExtendedClient>
@@ -55,13 +56,32 @@ const SCHEMA_SQL = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "ProjectStage_projectId_stageId_key" ON "ProjectStage"("projectId", "stageId")`,
 ]
 
+// عمليات الكتابة التي تستدعي المزامنة
+const WRITE_OPS = new Set([
+  'create',
+  'createMany',
+  'update',
+  'updateMany',
+  'upsert',
+  'delete',
+  'deleteMany',
+])
+
+const rawClient = new PrismaClient()
+
 async function ensureSchemaOnce(): Promise<void> {
   if (!globalForPrisma.schemaInit) {
     globalForPrisma.schemaInit = (async () => {
-      // في بيئة serverless (Vercel) مع SQLite في /tmp: تهيئة الجداول عند كل بداية باردة
-      if (process.env.DATABASE_URL?.startsWith('file:') && process.env.VERCEL === '1') {
+      const isServerlessSqlite =
+        process.env.DATABASE_URL?.startsWith('file:') && process.env.VERCEL === '1'
+      if (isServerlessSqlite) {
+        // 1) إنشاء الجداول عند البداية الباردة
         for (const sql of SCHEMA_SQL) {
           await rawClient.$executeRawUnsafe(sql)
+        }
+        // 2) استعادة الحالة المشتركة من Vercel Blob إن كانت القاعدة المحلية فارغة
+        if (blobSyncEnabled()) {
+          await restoreSyncState(rawClient as never)
         }
       }
     })().catch((err) => {
@@ -72,15 +92,18 @@ async function ensureSchemaOnce(): Promise<void> {
   return globalForPrisma.schemaInit
 }
 
-const rawClient = new PrismaClient()
-
 function createExtendedClient() {
-  // كل استعلام يمر عبر ضمان التهيئة مرة واحدة لكل نسخة
+  // كل استعلام يضمن الجداول والاستعادة مرة واحدة لكل نسخة،
+  // وكل كتابة تجدول مزامنة الحالة إلى Blob (fire-and-forget)
   return rawClient.$extends({
     query: {
-      $allOperations: async ({ query, args }) => {
+      $allOperations: async ({ operation, query, args }) => {
         await ensureSchemaOnce()
-        return query(args)
+        const result = await query(args)
+        if (WRITE_OPS.has(operation) && blobSyncEnabled()) {
+          scheduleSync(rawClient as never)
+        }
+        return result
       },
     },
   })

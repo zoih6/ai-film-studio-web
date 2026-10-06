@@ -12,7 +12,7 @@ import {
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta'
 const DEFAULT_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash'
-const REQUEST_TIMEOUT_MS = 90_000
+const REQUEST_TIMEOUT_MS = 55_000
 
 interface GeminiPart {
   text?: string

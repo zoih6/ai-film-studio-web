@@ -11,7 +11,7 @@ import { runStageForProject, nextPendingStage } from '@/lib/ai/pipeline'
 import { stagesForRoute } from '@/lib/domain/stages'
 
 export const runtime = 'nodejs'
-export const maxDuration = 120
+export const maxDuration = 60
 
 type Ctx = { params: Promise<{ projectId: string }> }
 

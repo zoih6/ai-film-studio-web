@@ -12,7 +12,7 @@ import { parseModelJson } from '@/lib/ai/output-parser'
 import type { IntentAnalysis, ProjectType } from '@/types'
 
 export const runtime = 'nodejs'
-export const maxDuration = 120
+export const maxDuration = 60
 
 type Ctx = { params: Promise<{ projectId: string }> }
 
