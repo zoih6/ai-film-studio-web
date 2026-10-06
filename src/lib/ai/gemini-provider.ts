@@ -101,6 +101,7 @@ export class GeminiProvider implements AIProvider {
             code: nonRetryable ? 'AI_CONFIG_ERROR' : 'AI_PROVIDER_ERROR',
             retryable: !nonRetryable,
             provider: this.name,
+            rawDetail: `HTTP ${res.status} | ${status} | ${message}`,
           },
         )
       }
@@ -141,7 +142,7 @@ export class GeminiProvider implements AIProvider {
     }
   }
 
-  async healthCheck(): Promise<ProviderHealth> {
+  async healthCheck(): Promise<ProviderHealth & { rawDetail?: string }> {
     try {
       await this.generate({
         system: 'You are a health probe. Reply with the single word: ok',
@@ -156,6 +157,7 @@ export class GeminiProvider implements AIProvider {
         provider: this.name,
         model: this.model,
         message: err instanceof Error ? err.message : 'unknown',
+        rawDetail: (err as { rawDetail?: string }).rawDetail,
       }
     }
   }

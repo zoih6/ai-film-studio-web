@@ -36,13 +36,15 @@ export class AIProviderError extends Error {
   code: string
   retryable: boolean
   provider: string
+  rawDetail?: string
 
-  constructor(message: string, opts: { code?: string; retryable?: boolean; provider?: string } = {}) {
+  constructor(message: string, opts: { code?: string; retryable?: boolean; provider?: string; rawDetail?: string } = {}) {
     super(message)
     this.name = 'AIProviderError'
     this.code = opts.code ?? 'AI_PROVIDER_ERROR'
     this.retryable = opts.retryable ?? true
     this.provider = opts.provider ?? 'unknown'
+    this.rawDetail = opts.rawDetail
   }
 }
 

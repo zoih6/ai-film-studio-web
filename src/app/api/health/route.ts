@@ -12,7 +12,7 @@ export async function GET() {
   const model = process.env.GEMINI_MODEL || 'gemini-3.8-flash'
   const providerMode = process.env.AI_PROVIDER || (hasGeminiKey ? 'gemini' : 'none')
 
-  let providerHealth: { ok: boolean; provider: string; model: string; message?: string } | null = null
+  let providerHealth: { ok: boolean; provider: string; model: string; message?: string; rawDetail?: string } | null = null
   try {
     const provider = await getProviderAsync()
     providerHealth = await provider.healthCheck()
@@ -22,6 +22,7 @@ export async function GET() {
       provider: 'unavailable',
       model,
       message: err instanceof Error ? err.message : 'unknown error',
+      rawDetail: (err as { rawDetail?: string }).rawDetail,
     }
   }
 
