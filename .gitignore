@@ -1,0 +1,39 @@
+# التبعيات
+node_modules/
+.pnp
+.pnp.js
+
+# مخرجات البناء
+.next/
+out/
+build/
+dist/
+
+# البيئات والأسرار — لا ترفع أبدًا
+.env
+.env.local
+.env*.local
+.env.production
+
+# قواعد البيانات المحلية
+db/
+*.db
+*.db-journal
+
+# السجلات
+*.log
+dev.log
+server.log
+
+# المحررات والأنظمة
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Prisma
+prisma/*.db
+
+# ملفات التشغيل
+.zscripts/
+agent-*.png

@@ -1,0 +1,66 @@
+// AI Film Studio Web — Prisma Schema
+// المصدر: docs/product/PRD.md (نموذج البيانات الأساسي)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id              String   @id @default(cuid())
+  title           String
+  idea            String
+  projectType     String   @default("auto") // auto | commercial | documentary | film | motion | series | prompt
+  platform        String?
+  durationSeconds Int?
+  aspectRatio     String?
+  language        String   @default("ar")
+  tone            String?
+  targetAudience  String?
+  preferredModel  String?
+  visualStyle     String?
+  notes           String?
+  status          String   @default("draft") // draft | analyzing | review | generating | completed | failed
+  route           String? // معرف المسار المختار
+  routeReason     String?
+  analysis        Json? // نتيجة تحليل النية
+  currentStage    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  stages ProjectStage[]
+}
+
+model ProjectStage {
+  id            String   @id @default(cuid())
+  projectId     String
+  stageId       String
+  status        String   @default("pending") // pending | running | completed | failed | approved
+  version       Int      @default(0)
+  output        Json?
+  inputSnapshot Json?
+  error         Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions       StageVersion[]
+
+  @@unique([projectId, stageId])
+}
+
+model StageVersion {
+  id            String   @id @default(cuid())
+  projectStageId String
+  version       Int
+  output        Json
+  note          String?
+  provider      String?
+  createdAt     DateTime @default(now())
+
+  projectStage ProjectStage @relation(fields: [projectStageId], references: [id], onDelete: Cascade)
+}

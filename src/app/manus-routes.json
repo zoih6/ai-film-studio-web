@@ -1,0 +1,45 @@
+{
+  "name": "AI Film Studio Web",
+  "description": "منصة عربية تفاعلية تحوّل فكرة الفيديو إلى حزمة إنتاج احترافية: برييف، ستوري بورد، وبرومبتات صور وحركة كاملة جاهزة للنسخ.",
+  "generatedAt": "2026-10-07T00:00:00Z",
+  "routes": [
+    { "path": "/", "name": "الصفحة الرئيسية", "description": "Landing + مربع الفكرة + المشاريع الأخيرة" },
+    { "path": "/api/projects", "methods": ["POST", "GET"], "description": "إنشاء مشروع / قائمة المشاريع" },
+    { "path": "/api/projects/:id", "methods": ["GET", "PATCH"], "description": "قراءة المشروع / تعديل بيانات intake" },
+    { "path": "/api/projects/:id/analyze", "methods": ["POST"], "description": "تحليل النية والتوجيه" },
+    { "path": "/api/projects/:id/generate", "methods": ["POST"], "description": "بدء Pipeline أو مرحلة محددة" },
+    { "path": "/api/projects/:id/stages/:stageId/regenerate", "methods": ["POST"], "description": "إعادة توليد مرحلة مع حفظ النسخة" },
+    { "path": "/api/projects/:id/stages/:stageId/approve", "methods": ["POST"], "description": "اعتماد مرحلة" },
+    { "path": "/api/projects/:id/events", "methods": ["GET"], "description": "أحداث تقدم المراحل (polling)" },
+    { "path": "/api/projects/:id/export", "methods": ["GET"], "description": "تصدير الحزمة (markdown | json)" }
+  ],
+  "views": [
+    { "view": "landing", "name": "الرئيسية", "description": "قيمة المنتج + مربع فكرة + أمثلة + مشاريع سابقة" },
+    { "view": "intake", "name": "إنشاء مشروع", "description": "Stepper: الفكرة → المواصفات → المعاينة" },
+    { "view": "review", "name": "مراجعة الاتجاه", "description": "بطاقة تلخيص + المسار المقترح + أسئلة ناقصة" },
+    { "view": "progress", "name": "تقدم التوليد", "description": "Timeline المراحل وحالاتها" },
+    { "view": "workspace", "name": "مساحة العمل", "description": "Sidebar المراحل + Canvas + Inspector + تصدير" }
+  ],
+  "pipelineStages": [
+    "brief",
+    "concept",
+    "narrative",
+    "beats",
+    "style-entities",
+    "storyboard",
+    "shot-cards",
+    "image-prompts",
+    "motion-prompts",
+    "audio",
+    "delivery"
+  ],
+  "shortcutStage": ["final-prompt"],
+  "routes_": {
+    "shortcut-prompt": "برومبت سريع",
+    "commercial-engine": "محرك الإعلانات",
+    "documentary-engine": "محرك الوثائقي",
+    "full-production": "المسار الكامل",
+    "motion-engine": "محرك الموشن",
+    "series-engine": "محرك السلاسل"
+  }
+}
